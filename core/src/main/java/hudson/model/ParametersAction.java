@@ -91,10 +91,20 @@ public class ParametersAction implements RunAction2, Iterable<ParameterValue>, Q
 
     public ParametersAction(List<ParameterValue> parameters) {
         this.parameters = parameters;
-        String paramNames = SystemProperties.getString(SAFE_PARAMETERS_SYSTEM_PROPERTY_NAME);
         safeParameters = new TreeSet<>();
+        Collection<? extends java.lang.String> paramNames = splitParamNames();
         if (paramNames != null) {
-            safeParameters.addAll(Arrays.asList(paramNames.split(",")));
+            safeParameters.addAll(paramNames);
+        }
+    }
+
+    private Collection<? extends java.lang.String> splitParamNames()
+    {
+        String paramNames = SystemProperties.getString(SAFE_PARAMETERS_SYSTEM_PROPERTY_NAME);
+        try {
+            return Arrays.asList(paramNames.split(","));
+        } catch (NullPointerException exception) {
+            return null;
         }
     }
 
@@ -121,17 +131,15 @@ public class ParametersAction implements RunAction2, Iterable<ParameterValue>, Q
     }
 
     public void createBuildWrappers(AbstractBuild<?,?> build, Collection<? super BuildWrapper> result) {
-        for (ParameterValue p : getParameters()) {
-            if (p == null) continue;
+        for (ParameterValue p : getNotNullParameters()) {
             BuildWrapper w = p.createBuildWrapper(build);
             if(w!=null) result.add(w);
         }
     }
 
     public void buildEnvVars(AbstractBuild<?,?> build, EnvVars env) {
-        for (ParameterValue p : getParameters()) {
-            if (p == null) continue;
-            p.buildEnvironment(build, env); 
+        for (ParameterValue p : getNotNullParameters()) {
+            p.buildEnvironment(build, env);
         }
     }
 
@@ -153,8 +161,7 @@ public class ParametersAction implements RunAction2, Iterable<ParameterValue>, Q
     public VariableResolver<String> createVariableResolver(AbstractBuild<?,?> build) {
         VariableResolver[] resolvers = new VariableResolver[getParameters().size()+1];
         int i=0;
-        for (ParameterValue p : getParameters()) {
-            if (p == null) continue;
+        for (ParameterValue p : getNotNullParameters()) {
             resolvers[i++] = p.createVariableResolver(build);
         }
             
@@ -172,6 +179,15 @@ public class ParametersAction implements RunAction2, Iterable<ParameterValue>, Q
         return Collections.unmodifiableList(filter(parameters));
     }
 
+
+    private List<ParameterValue> getNotNullParameters() {
+        List<ParameterValue> filteredParameters = new ArrayList<ParameterValue>();
+        for (ParameterValue parameterValue : getParameters()) {
+            if(parameterValue != null) filteredParameters.add(parameterValue);
+        }
+        return filteredParameters;
+    }
+
     public ParameterValue getParameter(String name) {
         for (ParameterValue p : parameters) {
             if (p == null) continue;
@@ -182,8 +198,7 @@ public class ParametersAction implements RunAction2, Iterable<ParameterValue>, Q
     }
 
     public Label getAssignedLabel(SubTask task) {
-        for (ParameterValue p : getParameters()) {
-            if (p == null) continue;
+        for (ParameterValue p : getNotNullParameters()) {
             Label l = p.getAssignedLabel(task);
             if (l!=null)    return l;
         }
@@ -227,9 +242,7 @@ public class ParametersAction implements RunAction2, Iterable<ParameterValue>, Q
     @Nonnull
     public ParametersAction createUpdated(Collection<? extends ParameterValue> overrides) {
         if(overrides == null) {
-            ParametersAction parametersAction = new ParametersAction(parameters);
-            parametersAction.safeParameters = this.safeParameters;
-            return parametersAction;
+            return createParametersAction();
         }
         List<ParameterValue> combinedParameters = newArrayList(overrides);
         Set<String> names = newHashSet();
@@ -247,6 +260,12 @@ public class ParametersAction implements RunAction2, Iterable<ParameterValue>, Q
         }
 
         return new ParametersAction(combinedParameters, this.safeParameters);
+    }
+
+    private ParametersAction createParametersAction() {
+        ParametersAction parametersAction = new ParametersAction(parameters);
+        parametersAction.safeParameters = this.safeParameters;
+        return parametersAction;
     }
 
     /*
@@ -284,11 +303,12 @@ public class ParametersAction implements RunAction2, Iterable<ParameterValue>, Q
     @Override
     public void onAttached(Run<?, ?> r) {
         ParametersDefinitionProperty p = r.getParent().getProperty(ParametersDefinitionProperty.class);
-        if (p != null) {
+        try {
             this.parameterDefinitionNames = p.getParameterDefinitionNames();
-        } else {
+        } catch (NullPointerException exception) {
             this.parameterDefinitionNames = Collections.emptyList();
         }
+
         this.run = r;
     }
 
